@@ -36,9 +36,14 @@ if($_REQUEST['id']) {
 }
 
 //Lookup user if id is available.
-if ($_REQUEST['uid'])
+if ($_REQUEST['uid']) {
     $user = User::lookup($_REQUEST['uid']);
-
+}
+elseif (!isset($_REQUEST['advsid']) && @$_REQUEST['a'] != 'search'
+    && !isset($_REQUEST['status']) && isset($_SESSION['::Q'])
+) {
+    $_REQUEST['status'] = $_SESSION['::Q'];
+}
 // Configure form for file uploads
 $response_form = new Form(array(
     'attachments' => new FileUploadField(array('id'=>'attach',
@@ -155,7 +160,7 @@ if($_POST && !$errors):
                      $errors['assignId']= sprintf('%s - %s',
                              __('Invalid assignee'),
                              __('get technical support'));
-                 elseif ($_POST['assignId'][0]!='s'
+                 elseif ($_POST['assignId'][0]=='s'
                          && $dept->assignMembersOnly()
                          && !$dept->isMember($id)) {
                      $errors['assignId'] = sprintf('%s. %s',
@@ -385,7 +390,7 @@ $open_name = _P('queue-name',
 if($cfg->showAnsweredTickets()) {
     $nav->addSubMenu(array('desc'=>$open_name.' ('.number_format($stats['open']+$stats['answered']).')',
                             'title'=>__('Open Tickets'),
-                            'href'=>'tickets.php',
+                            'href'=>'tickets.php?status=open',
                             'iconclass'=>'Ticket'),
                         (!$_REQUEST['status'] || $_REQUEST['status']=='open'));
 } else {
@@ -394,7 +399,7 @@ if($cfg->showAnsweredTickets()) {
 
         $nav->addSubMenu(array('desc'=>$open_name.' ('.number_format($stats['open']).')',
                                'title'=>__('Open Tickets'),
-                               'href'=>'tickets.php',
+                               'href'=>'tickets.php?status=open',
                                'iconclass'=>'Ticket'),
                             (!$_REQUEST['status'] || $_REQUEST['status']=='open'));
     }

@@ -193,6 +193,30 @@ class MailFetcher {
             $text=imap_binary($text);
             break;
             case 3:
+            if (strlen($text) > (1 << 20)) {
+                try {
+                    if (!($temp = tempnam(sys_get_temp_dir(), 'attachments'))
+                        || !($f = fopen($temp, 'w'))
+                        ) {
+                            throw new Exception();
+                    }
+                    $s_filter = stream_filter_append($f, 'convert.base64-decode',STREAM_FILTER_WRITE);
+                    if (!fwrite($f, $text))
+                        throw new Exception();
+                    stream_filter_remove($s_filter); 
+                    fclose($f);
+                    if (!($f = fopen($temp, 'r')) || !($text = fread($f, filesize($temp))))
+                        throw new Exception();
+                    fclose($f);
+                    unlink($temp);
+                    break;
+                }
+                catch (Exception $e) {
+                    // Noop. Fall through to imap_base64 method below
+                    @fclose($f);
+                    @unlink($temp);
+                }
+            }
             // imap_base64 implies strict mode. If it refuses to decode the
             // data, then fallback to base64_decode in non-strict mode
             $text = (($conv=imap_base64($text))) ? $conv : base64_decode($text);
@@ -360,7 +384,7 @@ class MailFetcher {
     }
 
     //search for specific mime type parts....encoding is the desired encoding.
-    function getPart($mid, $mimeType, $encoding=false, $struct=null, $partNumber=false, $recurse=-1) {
+    function getPart($mid, $mimeType, $encoding=false, $struct=null, $partNumber=false, $recurse=-1, $recurseIntoRfc822=true) {
 
         if(!$struct && $mid)
             $struct=@imap_fetchstructure($this->mbox, $mid);
@@ -396,15 +420,21 @@ class MailFetcher {
                 && ($content = $this->tnef->getBody('text/html', $encoding)))
             return $content;
 
-        //Do recursive search
-        $text='';
-        if($struct && $struct->parts && $recurse) {
+        // Do recursive search
+        $text = '';
+        $ctype = $this->getMimeType($struct);
+        if ($struct && $struct->parts && $recurse
+            // Do not recurse into email (rfc822) attachments unless requested
+            && (strtolower($ctype) !== 'message/rfc822' || $recurseIntoRfc822)
+        ) {
             while(list($i, $substruct) = each($struct->parts)) {
-                if($partNumber)
+                if ($partNumber)
                     $prefix = $partNumber . '.';
-                if (($result=$this->getPart($mid, $mimeType, $encoding,
-                        $substruct, $prefix.($i+1), $recurse-1)))
-                    $text.=$result;
+                if ($result = $this->getPart($mid, $mimeType, $encoding,
+                    $substruct, $prefix.($i+1), $recurse-1, $recurseIntoRfc822)
+                ) {
+                    $text .= $result;
+                }
             }
         }
 
@@ -519,9 +549,13 @@ class MailFetcher {
         if (strtolower($ctype) == 'multipart/report') {
             foreach ($struct->parameters as $p) {
                 if (strtolower($p->attribute) == 'report-type'
-                        && $p->value == 'delivery-status') {
-                    return new TextThreadBody( $this->getPart(
-                                $mid, 'text/plain', $this->charset, $struct, false, 1));
+                    && $p->value == 'delivery-status'
+                ) {
+                    if ($body = $this->getPart(
+                        $mid, 'text/plain', $this->charset, $struct, false, 3, false
+                    )) {
+                        return new TextThreadBody($body);
+                    }
                 }
             }
         }
@@ -594,6 +628,7 @@ class MailFetcher {
     function createTicket($mid) {
         global $ost;
 
+        unset($this->tnef);
         if(!($mailinfo = $this->getHeaderInfo($mid)))
             return false;
 

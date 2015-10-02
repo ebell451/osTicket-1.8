@@ -882,7 +882,7 @@ class Ticket {
         // ticket, the ticket is opened and thereafter the status is set to
         // the requested status).
         if ($current_status = $this->getStatus()) {
-            $note = sprintf(__('Status changed from %s to %s by %s'),
+            $note = sprintf(__('Status changed from %1$s to %2$s by %3$s'),
                     $this->getStatus(),
                     $status,
                     $thisstaff ?: 'SYSTEM');
@@ -1117,7 +1117,7 @@ class Ticket {
             // Skip all the other recipients of the message
             foreach ($entry->getAllEmailRecipients() as $R) {
                 foreach ($recipients as $R2) {
-                    if ($R2->getEmail() == ($R->mailbox.'@'.$R->hostname)) {
+                    if (0 === strcasecmp($R2->getEmail(), $R->mailbox.'@'.$R->host)) {
                         $skip[$R2->getUserId()] = true;
                         break;
                     }
@@ -1158,30 +1158,35 @@ class Ticket {
 
         db_query('UPDATE '.TICKET_TABLE.' SET isanswered=0,lastmessage=NOW() WHERE ticket_id='.db_input($this->getId()));
 
-        // Auto-assign to closing staff or last respondent
-        // If the ticket is closed and auto-claim is not enabled then put the
-        // ticket back to unassigned pool.
-        if ($this->isClosed() && !$cfg->autoClaimTickets()) {
-            $this->setStaffId(0);
-        } elseif(!($staff=$this->getStaff()) || !$staff->isAvailable()) {
-            // Ticket has no assigned staff -  if auto-claim is enabled then
-            // try assigning it to the last respondent (if available)
-            // otherwise leave the ticket unassigned.
-            if ($cfg->autoClaimTickets() //Auto claim is enabled.
-                    && ($lastrep=$this->getLastRespondent())
-                    && $lastrep->isAvailable()) {
-                $this->setStaffId($lastrep->getId()); //direct assignment;
-            } else {
-                $this->setStaffId(0); //unassign - last respondent is not available.
-            }
-        }
 
         // Reopen if closed AND reopenable
         // We're also checking autorespond flag because we don't want to
         // reopen closed tickets on auto-reply from end user. This is not to
         // confused with autorespond on new message setting
-        if ($autorespond && $this->isClosed() && $this->isReopenable())
+        if ($autorespond && $this->isClosed() && $this->isReopenable()) {
             $this->reopen();
+
+            // Auto-assign to closing staff or last respondent
+            // If the ticket is closed and auto-claim is not enabled then put the
+            // ticket back to unassigned pool.
+            if (!$cfg->autoClaimTickets()) {
+                $this->setStaffId(0);
+            }
+            elseif (!($staff = $this->getStaff()) || !$staff->isAvailable()) {
+                // Ticket has no assigned staff -  if auto-claim is enabled then
+                // try assigning it to the last respondent (if available)
+                // otherwise leave the ticket unassigned.
+                if (($lastrep = $this->getLastRespondent())
+                    && $lastrep->isAvailable()
+                ) {
+                    $this->setStaffId($lastrep->getId()); //direct assignment;
+                }
+                else {
+                    // unassign - last respondent is not available.
+                    $this->setStaffId(0);
+                }
+            }
+        }
 
        /**********   double check auto-response  ************/
         if (!($user = $message->getUser()))
@@ -1898,7 +1903,7 @@ class Ticket {
                       'cannedattachments' => $files);
 
         $errors = array();
-        if(!($response=$this->postReply($info, $errors, false)))
+        if (!($response=$this->postReply($info, $errors, false, false)))
             return null;
 
         $this->markUnAnswered();
@@ -1936,11 +1941,10 @@ class Ticket {
     }
 
     /* public */
-    function postReply($vars, &$errors, $alert = true) {
+    function postReply($vars, &$errors, $alert=true, $claim=true) {
         global $thisstaff, $cfg;
 
-
-        if(!$vars['poster'] && $thisstaff)
+        if (!$vars['poster'] && $thisstaff)
             $vars['poster'] = $thisstaff;
 
         if(!$vars['staffId'] && $thisstaff)
@@ -1959,10 +1963,11 @@ class Ticket {
             $this->setStatus($vars['reply_status_id']);
 
         // Claim on response bypasses the department assignment restrictions
-        if($thisstaff && $this->isOpen() && !$this->getStaffId()
-                && $cfg->autoClaimTickets())
+        if ($claim && $thisstaff && $this->isOpen() && !$this->getStaffId()
+            && $cfg->autoClaimTickets()
+        ) {
             $this->setStaffId($thisstaff->getId()); //direct assignment;
-
+        }
 
         $this->onResponse($response, array('assignee' => $assignee)); //do house cleaning..
 
@@ -2297,7 +2302,7 @@ class Ticket {
     }
 
     function lookupByNumber($number, $email=null) {
-        return self::lookup(self:: getIdByNumber($number, $email));
+        return self::lookup(self::getIdByNumber($number, $email));
     }
 
     static function isTicketNumberUnique($number) {
@@ -2932,6 +2937,9 @@ class Ticket {
 
         // Not assigned...save optional note if any
         if (!$vars['assignId'] && $vars['note']) {
+            if (!$cfg->isHtmlThreadEnabled()) {
+                $vars['note'] = new TextThreadBody($vars['note']);
+            }
             $ticket->logNote(_S('New Ticket'), $vars['note'], $thisstaff, false);
         }
         else {

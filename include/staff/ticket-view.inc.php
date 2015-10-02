@@ -42,6 +42,8 @@ if (!$errors['err']) {
                 $lock->getStaffName());
     elseif (($emailBanned=TicketFilter::isBanned($ticket->getEmail())))
         $errors['err'] = __('Email is in banlist! Must be removed before any reply/response');
+    elseif (!Validator::is_valid_email($ticket->getEmail()))
+        $errors['err'] = __('EndUser email address is not valid! Consider updating it before responding');
 }
 
 $unbannable=($emailBanned) ? BanList::includes($ticket->getEmail()) : false;
@@ -949,7 +951,7 @@ print $note_form->getField('attachments')->render();
         <?php echo sprintf(Format::htmlchars(__('%s <%s> will longer have access to the ticket')),
             '<b>'.Format::htmlchars($ticket->getName()).'</b>', Format::htmlchars($ticket->getEmail())); ?>
         </span>
-        <?php echo sprintf(__('Are you sure want to <b>change</b> ticket owner to %s?'),
+        <?php echo sprintf(__('Are you sure you want to <b>change</b> ticket owner to %s?'),
             '<b><span id="newuser">this guy</span></b>'); ?>
     </p>
     <p class="confirm-action" style="display:none;" id="delete-confirm">

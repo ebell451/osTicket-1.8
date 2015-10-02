@@ -297,7 +297,7 @@ class Topic {
             if (!$disabled && $info['disabled'])
                 continue;
             if ($disabled === self::DISPLAY_DISABLED && $info['disabled'])
-                $n .= " &mdash; ".__("(disabled)");
+                $n .= " - ".__("(disabled)");
             $requested_names[$id] = $n;
         }
 
@@ -415,7 +415,7 @@ class Topic {
         if (!($names = static::getHelpTopics(false, true)))
             return;
 
-        uasort($names, function($a, $b) { return strcmp($a, $b); });
+        uasort($names, function($a, $b) { return strcasecmp($a, $b); });
 
         $update = array_keys($names);
         foreach ($update as $idx=>&$id) {
